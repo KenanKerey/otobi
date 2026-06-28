@@ -1,4 +1,4 @@
-# Otobüsüm Nerede — İstanbul Live Bus Tracker
+# Otobi — İstanbul Live Bus Tracker
 
 A real-time İstanbul public-transport map. It tracks IETT buses live, snaps them
 to the actual road network, and animates them smoothly between GPS updates — on a

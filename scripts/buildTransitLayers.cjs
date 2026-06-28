@@ -42,7 +42,7 @@ async function overpassQuery(query) {
     method: 'POST',
     body: params,
     headers: {
-      'User-Agent': 'OtobusumNerede/1.0 (transit data build script)',
+      'User-Agent': 'Otobi/1.0 (transit data build script)',
     },
   });
 

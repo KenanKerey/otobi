@@ -17,7 +17,7 @@ export async function geocode(query) {
   });
 
   const res = await fetch(`${NOMINATIM_BASE}/search?${params}`, {
-    headers: { 'User-Agent': 'OtobusumNerede/1.0' },
+    headers: { 'User-Agent': 'Otobi/1.0' },
   });
 
   if (!res.ok) return [];

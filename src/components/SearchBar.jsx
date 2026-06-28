@@ -184,7 +184,7 @@ export default function SearchBar() {
         <div className="flex items-center justify-between px-3 pt-3 pb-2">
           <div>
             <h1 className="hud-display text-[13px] sm:text-[14px] font-black text-white tracking-widest">
-              OTOBÜSÜM NEREDE
+              OTOBİ
             </h1>
             <div className="flex items-center gap-1.5 mt-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 hud-led-pulse" />
