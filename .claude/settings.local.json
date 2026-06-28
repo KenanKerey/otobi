@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5175)",
+      "Bash(curl -s http://localhost:5175)",
+      "Bash(curl -s http://localhost:5175/src/App.jsx)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5175/api/iett/FiloDurum/SeferGerceklesme.asmx)",
+      "Bash(curl -s http://localhost:5175/src/hooks/useBuses.js)",
+      "Bash(curl -s http://localhost:5175/src/services/ibbApi.js)",
+      "WebFetch(domain:api.ibb.gov.tr)",
+      "WebFetch(domain:data.ibb.gov.tr)",
+      "WebFetch(domain:overpass-api.de)",
+      "WebSearch",
+      "WebFetch(domain:burakbayramli.github.io)",
+      "WebFetch(domain:forum.yazbel.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:iett.deno.dev)",
+      "WebFetch(domain:medium.com)",
+      "Bash(node scripts/buildTransitLayers.cjs)",
+      "Bash(node -e ':*)",
+      "Bash(npx vite:*)"
+    ]
+  }
+}
