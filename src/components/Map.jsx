@@ -1,8 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import MapGL, { Marker, Source, Layer, Popup } from 'react-map-gl/maplibre';
+import MapGL, { Marker, Source, Layer } from 'react-map-gl/maplibre';
 import { LocateFixed, Plus, Minus, Compass } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { getBusLineRoute } from '../services/routeData';
+import { getBusLineRoute, getDirectionStops } from '../services/routeData';
 import { createBusGeoJson } from './ThreeBusLayer';
 import { useFleetOverview } from '../hooks/useFleetOverview';
 import TransitLayers from './TransitLayers';
@@ -27,13 +27,14 @@ const NAV_ROUTE_GLOW = {
 const BUS_ROUTE_LAYER = {
   id: 'bus-route-line',
   type: 'line',
-  paint: { 'line-color': '#38bdf8', 'line-width': 3.5, 'line-opacity': 0.7, 'line-dasharray': [2, 3] },
+  paint: { 'line-color': '#4c8dff', 'line-width': 4, 'line-opacity': 0.95 },
   layout: { 'line-cap': 'round', 'line-join': 'round' },
 };
 const BUS_ROUTE_GLOW = {
   id: 'bus-route-glow',
   type: 'line',
-  paint: { 'line-color': '#38bdf8', 'line-width': 10, 'line-opacity': 0.12, 'line-blur': 6 },
+  paint: { 'line-color': '#4c8dff', 'line-width': 14, 'line-opacity': 0.18, 'line-blur': 8 },
+  layout: { 'line-cap': 'round', 'line-join': 'round' },
 };
 
 function MapControls({ mapRef }) {
@@ -60,7 +61,7 @@ function MapControls({ mapRef }) {
   const btn = 'w-9 h-9 flex items-center justify-center text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors cursor-pointer';
 
   return (
-    <div className="absolute bottom-20 right-3 z-[10] hud-surface rounded-md shadow-xl shadow-black/60 overflow-hidden flex flex-col divide-y divide-white/[0.06]">
+    <div className="absolute bottom-4 left-3 sm:left-4 z-[950] hud-surface rounded-xl overflow-hidden flex flex-col divide-y divide-white/[0.06]">
       <button onClick={handleZoomIn} title="Yakınlaştır" className={btn}><Plus className="h-4 w-4" /></button>
       <button onClick={handleZoomOut} title="Uzaklaştır" className={btn}><Minus className="h-4 w-4" /></button>
       <button onClick={handleReset} title="İstanbul'a dön" className={btn}><Compass className="h-4 w-4" /></button>
@@ -72,13 +73,13 @@ function MapControls({ mapRef }) {
 
 export default function Map({ buses }) {
   const mapRef = useRef(null);
-  const { selectedBus, setSelectedBus, origin, destination, routeGeometry, filterText } = useApp();
+  const { activeBus, setActiveBus, origin, destination, routeGeometry, filterText } = useApp();
 
   // Show all fleet vehicles when no line is selected
   const fleetActive = !filterText || filterText.length < 2;
   const fleetGeoJson = useFleetOverview(fleetActive);
-  const [popupBus, setPopupBus] = useState(null);
   const [busRoute, setBusRoute] = useState(null);
+  const [routeStops, setRouteStops] = useState(null);
   const busRouteLineRef = useRef(null);
 
   // 3D bus GeoJSON data (fill-extrusion layers) - recomputed every render
@@ -98,35 +99,44 @@ export default function Map({ buses }) {
     ...ISTANBUL, zoom: 11, pitch: 60, bearing: -17,
   });
 
-  // Fly to selected bus
+  // Fly to the active bus when it changes (selected from map or list)
   useEffect(() => {
-    if (selectedBus && mapRef.current) {
+    if (activeBus && mapRef.current) {
       mapRef.current.getMap().flyTo({
-        center: [selectedBus.lng, selectedBus.lat],
-        zoom: 16, pitch: 60, duration: 1500,
+        center: [activeBus.lng, activeBus.lat],
+        zoom: 16, pitch: 60, duration: 1200,
       });
-      setPopupBus(selectedBus);
-      setSelectedBus(null);
     }
-  }, [selectedBus, setSelectedBus]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBus?.id]);
 
-  // Compute bus line route on click (using real IBB route data)
+  // Draw the active bus's line route + stops (real IBB route data)
   useEffect(() => {
-    if (!popupBus) {
+    if (!activeBus) {
       setBusRoute(null);
+      setRouteStops(null);
       busRouteLineRef.current = null;
       return;
     }
-
-    const lineKey = `${popupBus.line}-${popupBus.destination}`;
+    const lineKey = `${activeBus.line}-${activeBus.destination}`;
     if (busRouteLineRef.current === lineKey) return;
     busRouteLineRef.current = lineKey;
 
-    getBusLineRoute(popupBus.line, popupBus.destination).then((geo) => {
-      if (geo) setBusRoute(geo);
-      else setBusRoute(null);
+    getBusLineRoute(activeBus.line, activeBus.destination).then((geo) => {
+      setBusRoute(geo || null);
     });
-  }, [popupBus]);
+    getDirectionStops(activeBus.line, activeBus.destination).then((stops) => {
+      setRouteStops({
+        type: 'FeatureCollection',
+        features: (stops || []).map((s) => ({
+          type: 'Feature',
+          properties: { name: s.name },
+          geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+        })),
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBus?.id]);
 
   // Fit route bounds (Nereden-Nereye)
   useEffect(() => {
@@ -165,11 +175,8 @@ export default function Map({ buses }) {
   }, []);
 
   const handleBusClick = useCallback((bus) => {
-    setPopupBus(bus);
-    mapRef.current?.getMap().flyTo({
-      center: [bus.lng, bus.lat], zoom: 16, pitch: 60, duration: 1000,
-    });
-  }, []);
+    setActiveBus(bus);
+  }, [setActiveBus]);
 
   return (
     <div className="absolute inset-0">
@@ -188,6 +195,23 @@ export default function Map({ buses }) {
           <Source id="bus-route-src" type="geojson" data={busRoute}>
             <Layer {...BUS_ROUTE_GLOW} />
             <Layer {...BUS_ROUTE_LAYER} />
+          </Source>
+        )}
+
+        {/* Line stops along the route */}
+        {routeStops && (
+          <Source id="route-stops-src" type="geojson" data={routeStops}>
+            <Layer
+              id="route-stops"
+              type="circle"
+              paint={{
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2, 14, 3.5, 16, 5],
+                'circle-color': '#0b0d12',
+                'circle-stroke-color': '#4c8dff',
+                'circle-stroke-width': 1.6,
+                'circle-opacity': 0.92,
+              }}
+            />
           </Source>
         )}
 
@@ -305,83 +329,29 @@ export default function Map({ buses }) {
           </Marker>
         ))}
 
-        {/* Bus labels floating above 3D models */}
-        {(buses || []).map((bus) => (
-          <Marker
-            key={`label-${bus.id}`}
-            longitude={bus.lng}
-            latitude={bus.lat}
-            anchor="bottom"
-            offset={[0, -10]}
-            onClick={(e) => {
-              e.originalEvent.stopPropagation();
-              handleBusClick(bus);
-            }}
-          >
-            <div className="bus-label-3d">
-              <span className="bus-label-line">{bus.line}</span>
-              {bus.speed != null && <span className="bus-label-speed">{bus.speed}</span>}
-            </div>
-          </Marker>
-        ))}
-
-        {/* Bus popup */}
-        {popupBus && (
-          <Popup
-            longitude={popupBus.lng}
-            latitude={popupBus.lat}
-            anchor="bottom"
-            offset={[0, -20]}
-            closeOnClick={false}
-            onClose={() => setPopupBus(null)}
-          >
-            <div className="flex flex-col gap-2 min-w-[200px]">
-              <div className="flex justify-between items-center pb-2 border-b border-white/[0.08]">
-                <span className="hud-mono text-[12px] font-bold text-yellow-300 bg-yellow-300/10 px-2 py-0.5 rounded">
-                  {popupBus.line}
-                </span>
-                <span className="hud-mono text-[9px] text-white/25 tracking-wider">{popupBus.plate}</span>
+        {/* Directional bus blips — arrow shows heading; speed only when zoomed
+            in or selected, so clustered buses don't overlap into a mess. */}
+        {(buses || []).map((bus) => {
+          const isSel = activeBus?.id === bus.id;
+          const showLabel = viewState.zoom >= 13 || isSel;
+          return (
+            <Marker
+              key={`bus-${bus.id}`}
+              longitude={bus.lng}
+              latitude={bus.lat}
+              anchor="center"
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                handleBusClick(bus);
+              }}
+            >
+              <div className={`bus-blip${isSel ? ' selected' : ''}`} title={`${bus.line} → ${bus.destination}`}>
+                <span className="bus-dot" />
+                {showLabel && <span className="bus-blip-label">{bus.line}</span>}
               </div>
-
-              <div className="flex flex-col gap-1.5 text-[11px]">
-                <div className="flex justify-between items-center">
-                  <span className="hud-mono text-[9px] text-white/30 tracking-wider">YÖN</span>
-                  <span className="text-white/70 text-right max-w-[130px] truncate" title={popupBus.destination}>{popupBus.destination}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="hud-mono text-[9px] text-white/30 tracking-wider">SİNYAL</span>
-                  <span className="hud-mono text-[10px] text-yellow-300/60">{popupBus.lastUpdate}</span>
-                </div>
-
-                {popupBus.approachingStop && (
-                  <>
-                    <div className="h-px bg-white/[0.06] my-0.5" />
-                    <div className="flex justify-between items-center">
-                      <span className="hud-mono text-[9px] text-white/30 tracking-wider">DURAK</span>
-                      <span className="text-white/60 text-right max-w-[130px] truncate text-[10px]" title={popupBus.approachingStop.name}>{popupBus.approachingStop.name}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="hud-mono text-[9px] text-white/30 tracking-wider">MESAFE</span>
-                      <span className="hud-mono text-[10px] text-white/50">{(popupBus.approachingStop.distanceKm * 1000).toFixed(0)} m</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="hud-mono text-[9px] text-white/30 tracking-wider">TAHMİNİ</span>
-                      <span className="hud-mono text-[12px] font-bold text-emerald-400">{popupBus.approachingStop.etaMin} dk</span>
-                    </div>
-                  </>
-                )}
-
-                <div className="h-px bg-white/[0.06] my-0.5" />
-                <div className="flex justify-between items-center">
-                  <span className="hud-mono text-[9px] text-white/30 tracking-wider">HIZ</span>
-                  <span className="hud-mono text-[11px] text-emerald-400/80 font-medium">
-                    {popupBus.speed != null ? `${popupBus.speed} km/sa` : 'Veri bekleniyor...'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </Popup>
-        )}
+            </Marker>
+          );
+        })}
 
         <MapControls mapRef={mapRef} />
       </MapGL>

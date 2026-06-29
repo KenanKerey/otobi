@@ -1,20 +1,24 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getAllStops, getBusesByLine } from '../services/ibbApi';
 import { getRoutePolyline } from '../services/routeData';
+import { touchLine, triggerRefresh } from '../services/supabase';
 import { calculateHeading, calculateDistanceKm, calculateEtaMinutes } from '../utils/distance';
 import { projectToRoute, pointAtDistance } from '../utils/polyline';
 
-const POLL_INTERVAL = 20000; // ms - how often we pull fresh API positions
+const POLL_INTERVAL = 10000; // ms - how often we pull fresh positions
 const ANIM_INTERVAL = 40;    // ms - ~25fps render loop
 // If a GPS fix is further than this from the route, don't snap (likely wrong
 // direction match or off-route detour) — fall back to straight-line motion.
 const MAX_SNAP_OFFSET_M = 120;
-// A bus that advanced more than this between two fixes is treated as "moving".
-const MOVE_THRESHOLD_M = 8;
-// How far past a fix we let a moving bus dead-reckon before the next one
-// arrives (1.3 = up to +30% of the poll interval). Keeps motion fluid if a
-// poll is late; bounded so predictions never drift far from reality.
-const OVERSHOOT = 1.3;
+// Motion model. IBB's position feed only refreshes every ~30-60s, but the speed
+// feed is live, so we drive motion from the reported SPEED: every frame the bus
+// advances forward at its speed, and each new GPS fix nudges it forward toward
+// the truth. The render point only ever moves FORWARD (never reverses), and we
+// cap how far ahead of the last fix it may get so it can't run away.
+const EASE = 0.15;            // forward correction toward a new GPS fix (route)
+const EASE_LINE = 0.08;       // forward correction in lat/lng fallback mode
+const MPS_PER_KMH = 1 / 3.6;
+const M_PER_DEG = 111320;
 
 export function useBuses(filterText) {
   const [buses, setBuses] = useState([]);
@@ -32,9 +36,8 @@ export function useBuses(filterText) {
   const routes = useRef(new Map());          // destination -> builtRoute | null (null = none)
   const pendingRoutes = useRef(new Set());   // destinations currently being fetched
   const busState = useRef(new Map());         // busId -> animation state
-  const renderedS = useRef(new Map());        // busId -> current distance-along-route (route mode)
+  const renderedS = useRef(new Map());        // busId -> current distance-along-route
   const renderedPos = useRef(new Map());      // busId -> {lat,lng} (fallback mode)
-  const pollStart = useRef(0);
 
   const retry = useCallback(() => setRetryCount(c => c + 1), []);
 
@@ -66,6 +69,11 @@ export function useBuses(filterText) {
 
     const loadData = async () => {
       try {
+        // Keep this line marked active and nudge the backend poller (self-throttled,
+        // so this is cheap) so Supabase has fresh positions before we read them.
+        await touchLine(key).catch(() => {});
+        await triggerRefresh();
+
         const stopsMap = await getAllStops();
         const fetched = await getBusesByLine(filterText, stopsMap);
         if (!alive) return;
@@ -86,22 +94,24 @@ export function useBuses(filterText) {
           if (heading == null) heading = lastHeadings.current.get(bus.id) ?? 0;
           lastHeadings.current.set(bus.id, heading);
 
-          // Speed: derive from distance / time between consecutive GPS fixes.
-          // Only recompute when a genuinely new fix arrived (timestamp changed).
-          let speed = lastSpeeds.current.get(bus.id) ?? null;
-          if (prev && bus.rawTime && bus.rawTime !== prevTime) {
-            const distKm = calculateDistanceKm(prev.lat, prev.lng, bus.lat, bus.lng);
-            let dtSec = POLL_INTERVAL / 1000;
-            if (prevTime) {
-              const dt = (Date.parse(bus.rawTime.replace(' ', 'T')) - Date.parse(prevTime.replace(' ', 'T'))) / 1000;
-              if (dt > 0 && dt < 600) dtSec = dt;
-            }
-            const inst = distKm / (dtSec / 3600); // km/h
-            if (isFinite(inst)) {
-              const prevS = lastSpeeds.current.get(bus.id);
-              // Light smoothing to tame GPS jitter.
-              const blended = prevS != null ? prevS * 0.4 + inst * 0.6 : inst;
-              speed = Math.max(0, Math.min(120, Math.round(blended)));
+          // Speed comes straight from the fleet feed (via Supabase) — instant.
+          // Only fall back to a GPS-delta estimate if it's somehow missing.
+          let speed = bus.speed;
+          if (speed == null) {
+            speed = lastSpeeds.current.get(bus.id) ?? null;
+            if (prev && bus.rawTime && bus.rawTime !== prevTime) {
+              const distKm = calculateDistanceKm(prev.lat, prev.lng, bus.lat, bus.lng);
+              let dtSec = POLL_INTERVAL / 1000;
+              if (prevTime) {
+                const dt = (Date.parse(bus.rawTime.replace(' ', 'T')) - Date.parse(prevTime.replace(' ', 'T'))) / 1000;
+                if (dt > 0 && dt < 600) dtSec = dt;
+              }
+              const inst = distKm / (dtSec / 3600); // km/h
+              if (isFinite(inst)) {
+                const prevS = lastSpeeds.current.get(bus.id);
+                const blended = prevS != null ? prevS * 0.4 + inst * 0.6 : inst;
+                speed = Math.max(0, Math.min(120, Math.round(blended)));
+              }
             }
           }
           lastSpeeds.current.set(bus.id, speed);
@@ -125,43 +135,37 @@ export function useBuses(filterText) {
         const dests = new Set(enriched.map(b => b.destination || ''));
         dests.forEach(ensureRoute);
 
-        // Rebuild per-bus animation state from current rendered position to the
-        // new API target. Buses glide over the whole POLL_INTERVAL → continuous
-        // motion, snapped to the road polyline when one is available.
+        // Rebuild per-bus animation state. vel is the reported speed (m/s); the
+        // render loop advances the bus forward at this speed continuously.
+        const fixTime = Date.now();
         const nextState = new Map();
         enriched.forEach(bus => {
+          const vel = Math.max(0, (bus.speed ?? 0)) * MPS_PER_KMH; // m/s
           const route = routes.current.get(bus.destination || '');
           if (route) {
             const { s: targetS, offset } = projectToRoute(route, bus.lat, bus.lng);
             if (offset <= MAX_SNAP_OFFSET_M) {
-              const prevS = renderedS.current.has(bus.id)
-                ? renderedS.current.get(bus.id)
-                : targetS;
-              const moving = Math.abs(targetS - prevS) > MOVE_THRESHOLD_M;
-              nextState.set(bus.id, { mode: 'route', route, prevS, targetS, moving, meta: bus });
+              nextState.set(bus.id, { mode: 'route', route, targetS, vel, meta: bus });
+              if (!renderedS.current.has(bus.id)) renderedS.current.set(bus.id, targetS);
               renderedPos.current.delete(bus.id);
               return;
             }
           }
-          // Fallback: straight-line glide from last rendered point to new fix.
-          const prev = renderedPos.current.get(bus.id) || { lat: bus.lat, lng: bus.lng };
-          const moving = calculateDistanceKm(prev.lat, prev.lng, bus.lat, bus.lng) * 1000 > MOVE_THRESHOLD_M;
+          // Fallback: advance along heading when no route polyline is available.
           nextState.set(bus.id, {
             mode: 'line',
-            prevLat: prev.lat, prevLng: prev.lng,
             targetLat: bus.lat, targetLng: bus.lng,
-            moving,
-            meta: bus,
+            vel, heading: bus.heading, meta: bus,
           });
+          if (!renderedPos.current.has(bus.id)) renderedPos.current.set(bus.id, { lat: bus.lat, lng: bus.lng });
           renderedS.current.delete(bus.id);
         });
 
-        // Drop state for buses no longer reported.
+        // Drop render state for buses no longer reported.
         for (const id of renderedS.current.keys()) if (!nextState.has(id)) renderedS.current.delete(id);
         for (const id of renderedPos.current.keys()) if (!nextState.has(id)) renderedPos.current.delete(id);
 
         busState.current = nextState;
-        pollStart.current = Date.now();
 
         if (firstPaint) {
           // First paint: show buses at their reported positions immediately;
@@ -191,32 +195,36 @@ export function useBuses(filterText) {
     const pollId = setInterval(loadData, POLL_INTERVAL);
 
     // ── Continuous render loop ──────────────────────────────────────
+    // Advance each bus forward at its reported speed every frame; nudge it
+    // forward toward the latest GPS fix; never move backward; cap how far ahead
+    // of the fix it may drift. Smooth continuous motion, no reversing.
     const animId = setInterval(() => {
       if (!alive || busState.current.size === 0) return;
 
-      const rawP = (Date.now() - pollStart.current) / POLL_INTERVAL;
+      const dt = ANIM_INTERVAL / 1000;
       const blended = [];
 
       busState.current.forEach((state, id) => {
-        // Glide across the whole interval; moving buses may briefly dead-reckon
-        // past the last fix (OVERSHOOT) so late polls don't cause a hard stop.
-        const p = Math.min(rawP, state.moving ? OVERSHOOT : 1);
-
         if (state.mode === 'route') {
-          const s = state.prevS + (state.targetS - state.prevS) * p;
+          let s = renderedS.current.get(id);
+          if (s == null) s = state.targetS;
+          s += state.vel * dt;                                  // continuous forward
+          if (state.targetS > s) s += (state.targetS - s) * EASE; // ease up to a newer fix
+          const lead = Math.max(150, state.vel * 25);           // don't drift too far ahead
+          if (s > state.targetS + lead) s = state.targetS + lead;
           renderedS.current.set(id, s);
           const pt = pointAtDistance(state.route, s);
           blended.push({ ...state.meta, lat: pt.lat, lng: pt.lng, heading: pt.heading });
         } else {
-          const lat = state.prevLat + (state.targetLat - state.prevLat) * p;
-          const lng = state.prevLng + (state.targetLng - state.prevLng) * p;
+          let cur = renderedPos.current.get(id) || { lat: state.targetLat, lng: state.targetLng };
+          const hRad = (state.heading || 0) * Math.PI / 180;
+          const latRad = cur.lat * Math.PI / 180;
+          let lat = cur.lat + (state.vel * dt * Math.cos(hRad)) / M_PER_DEG;
+          let lng = cur.lng + (state.vel * dt * Math.sin(hRad)) / (M_PER_DEG * Math.cos(latRad));
+          lat += (state.targetLat - lat) * EASE_LINE;           // drift toward latest fix
+          lng += (state.targetLng - lng) * EASE_LINE;
           renderedPos.current.set(id, { lat, lng });
-          let heading = state.meta.heading;
-          if (state.targetLat !== state.prevLat || state.targetLng !== state.prevLng) {
-            const h = calculateHeading(state.prevLat, state.prevLng, state.targetLat, state.targetLng);
-            if (!isNaN(h)) heading = h;
-          }
-          blended.push({ ...state.meta, lat, lng, heading });
+          blended.push({ ...state.meta, lat, lng, heading: state.heading });
         }
       });
 

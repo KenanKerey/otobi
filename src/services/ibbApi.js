@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 import { calculateDistanceKm } from '../utils/distance';
-import { fetchAllStops, fetchAllLines } from './supabase';
+import { fetchAllStops, fetchAllLines, fetchVehiclesByLine } from './supabase';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -10,10 +10,6 @@ const parser = new XMLParser({
 // ── Caches ──────────────────────────────────────────
 let cachedStops = null;
 let cachedLines = null;
-
-// De-dupe concurrent identical line-position requests (e.g. React StrictMode
-// double-invokes the effect in dev) so they share a single network call.
-const hatKonumInFlight = new Map();
 
 // ── Generic SOAP helper ─────────────────────────────
 function getBody(parsed) {
@@ -233,55 +229,42 @@ export async function getLineStops(lineCode) {
   }
 }
 
-// ── Buses by line ───────────────────────────────────
-// Single light request per poll. Speed is derived from GPS deltas in useBuses
-// (no heavy fleet call), which keeps us well under the IBB rate limit.
+// ── Buses by line (from Supabase, not IBB) ──────────
+// Positions + speed are served from the vehicle_positions table, which a single
+// backend poller keeps fresh. The client never calls the IBB API for positions,
+// so there is no per-client rate-limit exposure and speed arrives immediately.
 export async function getBusesByLine(line, stopsMap) {
-  const key = line.toUpperCase();
+  const rows = await fetchVehiclesByLine(line);
 
-  let promise = hatKonumInFlight.get(key);
-  if (!promise) {
-    promise = soapRequest(
-      '/api/iett/FiloDurum/SeferGerceklesme.asmx',
-      'GetHatOtoKonum_json',
-      `<GetHatOtoKonum_json xmlns="http://tempuri.org/"><HatKodu>${key}</HatKodu></GetHatOtoKonum_json>`
-    ).finally(() => hatKonumInFlight.delete(key));
-    hatKonumInFlight.set(key, promise);
-  }
+  return rows
+    .filter(r => r.lat != null && r.lng != null)
+    .map(r => {
+      const lat = r.lat;
+      const lng = r.lng;
 
-  const body = await promise;
-
-  const jsonString = body['GetHatOtoKonum_jsonResponse']['GetHatOtoKonum_jsonResult'];
-  if (!jsonString) return [];
-
-  const data = JSON.parse(jsonString);
-
-  return data.map(bus => {
-    const lat = parseFloat(bus.enlem);
-    const lng = parseFloat(bus.boylam);
-
-    let approachingStop = null;
-    if (bus.yakinDurakKodu && stopsMap.has(bus.yakinDurakKodu)) {
-      const stopInfo = stopsMap.get(bus.yakinDurakKodu);
-      if (stopInfo.lat && stopInfo.lng) {
-        const distKm = calculateDistanceKm(lat, lng, stopInfo.lat, stopInfo.lng);
-        // ETA filled in by useBuses once speed is known.
-        approachingStop = { ...stopInfo, distanceKm: distKm, etaMin: null };
+      let approachingStop = null;
+      const stopCode = r.yakin_durak ? String(r.yakin_durak) : null;
+      if (stopCode && stopsMap.has(stopCode)) {
+        const stopInfo = stopsMap.get(stopCode);
+        if (stopInfo.lat && stopInfo.lng) {
+          const distKm = calculateDistanceKm(lat, lng, stopInfo.lat, stopInfo.lng);
+          // ETA filled in by useBuses once speed is known.
+          approachingStop = { ...stopInfo, distanceKm: distKm, etaMin: null };
+        }
       }
-    }
 
-    return {
-      id: bus.kapino,
-      lat,
-      lng,
-      line: bus.hatkodu,
-      routeCode: bus.guzergahkodu || '',
-      destination: bus.yon || 'Bilinmiyor',
-      speed: null,                      // computed from GPS deltas in useBuses
-      plate: bus.kapino,
-      lastUpdate: bus.son_konum_zamani ? bus.son_konum_zamani.split(' ')[1]?.slice(0, 5) : '-',
-      rawTime: bus.son_konum_zamani || null,
-      approachingStop,
-    };
-  });
+      return {
+        id: r.kapino,
+        lat,
+        lng,
+        line: r.line,
+        routeCode: r.guzergah || '',
+        destination: r.yon || 'Bilinmiyor',
+        speed: r.speed ?? null,           // direct from the fleet feed (instant)
+        plate: r.plate || r.kapino,
+        lastUpdate: r.raw_time ? r.raw_time.split(' ')[1]?.slice(0, 5) : '-',
+        rawTime: r.raw_time || null,
+        approachingStop,
+      };
+    });
 }

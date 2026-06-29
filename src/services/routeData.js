@@ -64,6 +64,35 @@ export async function getBusLineRoute(lineCode, destination) {
   return feature;
 }
 
+const stopsCache = new Map();
+
+/**
+ * Ordered stops for the direction matching `destination`. Used to draw the
+ * line's stops on the map for the route view.
+ */
+export async function getDirectionStops(lineCode, destination) {
+  const key = `${(lineCode || '').toUpperCase()}-${destination || ''}`;
+  if (stopsCache.has(key)) return stopsCache.get(key);
+
+  const stops = await getLineStops(lineCode);
+  if (!stops || stops.length < 2) {
+    stopsCache.set(key, []);
+    return [];
+  }
+
+  const directions = new Map();
+  stops.forEach(s => {
+    const dir = s.direction || 'unknown';
+    if (!directions.has(dir)) directions.set(dir, []);
+    directions.get(dir).push(s);
+  });
+
+  const matched = matchDirection(directions, destination) || [];
+  const ordered = [...matched].sort((a, b) => a.sequence - b.sequence);
+  stopsCache.set(key, ordered);
+  return ordered;
+}
+
 /**
  * Match the bus destination text to the correct direction's stop list.
  */

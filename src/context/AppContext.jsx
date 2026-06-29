@@ -6,6 +6,7 @@ const AppContext = createContext();
 export function AppProvider({ children }) {
   const [filterText, setFilterText] = useState('');
   const [selectedBus, setSelectedBus] = useState(null);
+  const [activeBus, setActiveBus] = useState(null); // bus shown in the side detail view
   const [panelOpen, setPanelOpen] = useState(false);
   const [favorites, setFavorites] = useState(() => {
     try {
@@ -47,6 +48,7 @@ export function AppProvider({ children }) {
 
   const selectLine = useCallback((lineCode) => {
     setFilterText(lineCode);
+    setActiveBus(null);
     setPanelOpen(true);
   }, []);
 
@@ -62,6 +64,8 @@ export function AppProvider({ children }) {
     setFilterText,
     selectedBus,
     setSelectedBus,
+    activeBus,
+    setActiveBus,
     panelOpen,
     setPanelOpen,
     favorites,

@@ -2,25 +2,45 @@
 @import "maplibre-gl/dist/maplibre-gl.css";
 
 @theme {
-  --font-sans: "Noto Sans", system-ui, sans-serif;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
-  --font-display: "Orbitron", sans-serif;
+  --font-display: "Inter", system-ui, sans-serif;
 }
 
 :root {
-  --hud-bg: rgba(10, 10, 10, 0.82);
-  --hud-border: rgba(255, 255, 255, 0.08);
-  --hud-border-strong: rgba(255, 255, 255, 0.15);
-  --hud-accent: #fde047;
-  --hud-accent-soft: rgba(253, 224, 71, 0.12);
-  --hud-text: #e2e8f0;
-  --hud-text-muted: rgba(255, 255, 255, 0.45);
-  --hud-text-faint: rgba(255, 255, 255, 0.25);
-  --hud-live: #34d399;
+  /* Clean modern dark surfaces */
+  --bg: #0b0d12;
+  --surface: rgba(22, 25, 33, 0.86);
+  --surface-solid: #161922;
+  --elev: rgba(255, 255, 255, 0.04);
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.12);
+
+  --text: #f3f5f9;
+  --text-muted: #9aa4b2;
+  --text-faint: #5d6776;
+
+  --accent: #34d27b;        /* friendly transit green (live) */
+  --accent-soft: rgba(52, 210, 123, 0.14);
+  --primary: #4c8dff;       /* calm blue for selection/links */
+  --warn: #f5a524;
+  --danger: #f87171;
+
+  /* Back-compat aliases (older class names) */
+  --hud-bg: var(--surface);
+  --hud-border: var(--border);
+  --hud-border-strong: var(--border-strong);
+  --hud-accent: var(--accent);
+  --hud-text: var(--text);
+  --hud-text-muted: var(--text-muted);
+  --hud-text-faint: var(--text-faint);
+  --hud-live: var(--accent);
 
   font-family: var(--font-sans);
-  background-color: #0a0a0a;
-  color: var(--hud-text);
+  background-color: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 html, body, #root {
@@ -31,223 +51,225 @@ html, body, #root {
   overflow: hidden;
 }
 
-/* ── HUD Design System ────────────────────────── */
+/* ── Surfaces / cards ─────────────────────────── */
 .hud-surface {
-  background: var(--hud-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--hud-border);
+  background: var(--surface);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
 }
 
 .hud-mono {
   font-family: var(--font-mono);
-  letter-spacing: 0.05em;
   font-variant-numeric: tabular-nums;
 }
 
+/* Wordmark — clean, tight tracking (no more arcade font) */
 .hud-display {
   font-family: var(--font-display);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-transform: none;
 }
 
-/* ── Live pulse animation ─────────────────────── */
+/* Reusable line-code chip */
+.line-chip {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  background: var(--elev);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 2px 7px;
+}
+
+/* ── Live pulse ───────────────────────────────── */
 @keyframes led-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.85); }
 }
-.hud-led-pulse {
-  animation: led-pulse 2s ease-in-out infinite;
-}
+.hud-led-pulse { animation: led-pulse 2.2s ease-in-out infinite; }
 
-/* ── Fade in animation ────────────────────────── */
+/* ── Fade / slide in ──────────────────────────── */
 @keyframes hud-fade-in {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.hud-fade {
-  animation: hud-fade-in 0.25s ease-out;
-}
+.hud-fade { animation: hud-fade-in 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
 
-/* ── MapLibre overrides ──────────────────────── */
-.maplibregl-map {
-  font-family: var(--font-sans);
-}
-
+/* ── MapLibre base ────────────────────────────── */
+.maplibregl-map { font-family: var(--font-sans); }
 .maplibregl-ctrl-attrib {
   font-size: 9px !important;
-  background: rgba(0, 0, 0, 0.5) !important;
+  background: rgba(0, 0, 0, 0.4) !important;
   color: rgba(255, 255, 255, 0.3) !important;
 }
-.maplibregl-ctrl-attrib a {
-  color: rgba(255, 255, 255, 0.4) !important;
-}
+.maplibregl-ctrl-attrib a { color: rgba(255, 255, 255, 0.4) !important; }
 
-/* ═══════════════════════════════════════════════
-   3D BUS SVG MARKER
-   ═══════════════════════════════════════════════ */
+/* ── Bus marker (legacy SVG wrapper) ──────────── */
 .bus-marker-wrapper {
   display: flex;
   flex-direction: column;
   align-items: center;
   cursor: pointer;
-  transition: transform 0.2s ease, filter 0.2s ease;
-  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.7));
+  transition: transform 0.18s ease;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.5));
 }
-.bus-marker-wrapper:hover {
-  transform: scale(1.15);
-  filter:
-    drop-shadow(0 6px 16px rgba(0, 0, 0, 0.8))
-    brightness(1.1);
-}
+.bus-marker-wrapper:hover { transform: scale(1.12); }
 
-/* Info bar above bus: line code + speed */
 .bus-info-bar {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-bottom: 2px;
-  background: rgba(5, 5, 10, 0.85);
-  border: 1px solid rgba(253, 224, 71, 0.3);
-  border-radius: 4px;
-  padding: 2px 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  margin-bottom: 3px;
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px 7px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
   pointer-events: none;
 }
-
 .bus-info-line {
   font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 800;
-  color: var(--hud-accent);
-  letter-spacing: 0.06em;
-  text-shadow: 0 0 6px rgba(253, 224, 71, 0.5);
+  font-weight: 700;
+  color: var(--text);
 }
-
 .bus-info-speed {
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 600;
-  color: var(--hud-live);
-  letter-spacing: 0.04em;
-  text-shadow: 0 0 4px rgba(52, 211, 153, 0.4);
+  color: var(--accent);
 }
 
-/* ── Route origin/destination markers ────────── */
+/* ── Route origin / destination pins ──────────── */
 .route-marker {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-mono);
   font-weight: 700;
   font-size: 12px;
-  box-shadow: 0 0 20px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
-  cursor: pointer;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
+.route-marker.origin { background: var(--accent); }
+.route-marker.destination { background: var(--danger); }
 
-.route-marker.origin {
-  background: #34d399;
-  color: #0a0a0a;
-  border: 2px solid rgba(52, 211, 153, 0.5);
-  box-shadow: 0 0 20px rgba(52, 211, 153, 0.3), 0 4px 12px rgba(0, 0, 0, 0.4);
-}
-
-.route-marker.destination {
-  background: #f87171;
-  color: #0a0a0a;
-  border: 2px solid rgba(248, 113, 113, 0.5);
-  box-shadow: 0 0 20px rgba(248, 113, 113, 0.3), 0 4px 12px rgba(0, 0, 0, 0.4);
-}
-
-/* ── 3D Stop Marker ──────────────────────────── */
+/* ── Stop marker ──────────────────────────────── */
 .stop-marker-3d {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(59, 130, 246, 0.2);
+  background: rgba(76, 141, 255, 0.18);
   border-radius: 50%;
-  box-shadow: 0 0 10px rgba(59, 130, 246, 0.6);
 }
-
 .stop-inner {
   width: 6px;
   height: 6px;
-  background: #60a5fa;
+  background: #fff;
+  border: 2px solid var(--primary);
   border-radius: 50%;
-  border: 1px solid #fff;
-  box-shadow: 0 0 5px #fff;
 }
 
-/* ── 3D Bus floating labels ─────────────────── */
+/* ── Floating bus label (the chip over each bus) ─ */
 .bus-label-3d {
   display: flex;
   align-items: center;
-  gap: 3px;
-  background: rgba(5, 5, 10, 0.88);
-  border: 1px solid rgba(253, 224, 71, 0.35);
-  border-radius: 4px;
-  padding: 2px 6px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
+  gap: 5px;
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 3px 7px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
   cursor: pointer;
   pointer-events: auto;
-  transition: transform 0.15s ease, border-color 0.15s ease;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .bus-label-3d:hover {
-  transform: scale(1.12);
-  border-color: rgba(253, 224, 71, 0.7);
+  transform: translateY(-1px) scale(1.05);
+  border-color: var(--border-strong);
 }
-
+.bus-label-3d.selected {
+  border-color: var(--accent);
+  box-shadow: 0 4px 16px rgba(52, 210, 123, 0.35);
+}
 .bus-label-line {
   font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 800;
-  color: var(--hud-accent);
-  letter-spacing: 0.06em;
-  text-shadow: 0 0 6px rgba(253, 224, 71, 0.5);
+  font-weight: 700;
+  color: var(--text);
 }
-
 .bus-label-speed {
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 600;
-  color: var(--hud-live);
-  letter-spacing: 0.04em;
-  text-shadow: 0 0 4px rgba(52, 211, 153, 0.4);
+  color: var(--accent);
 }
-.bus-label-speed::after {
-  content: ' km/sa';
-  font-size: 7px;
-  opacity: 0.6;
-}
+.bus-label-speed::after { content: ' km/sa'; font-size: 7px; opacity: 0.55; }
 
-/* ── MapLibre popup ──────────────────────────── */
+/* ── Directional bus blip (declutter: arrow + optional speed) ─ */
+.bus-blip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.bus-blip:hover { transform: scale(1.18); }
+.bus-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #eef1f6;
+  border: 2.5px solid var(--bg);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.18), 0 2px 6px rgba(0, 0, 0, 0.55);
+}
+.bus-blip.selected .bus-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(52, 210, 123, 0.4), 0 2px 9px rgba(0, 0, 0, 0.5);
+}
+.bus-blip-speed, .bus-blip-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 5px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+}
+.bus-blip.selected .bus-blip-label { border-color: var(--accent); color: var(--accent); }
+
+/* ── Popup ────────────────────────────────────── */
 .maplibregl-popup-content {
-  background: rgba(10, 10, 10, 0.92) !important;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  color: var(--hud-text) !important;
-  border: 1px solid var(--hud-border) !important;
-  border-radius: 8px !important;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7) !important;
-  padding: 12px 14px !important;
+  background: var(--surface-solid) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.5) !important;
+  padding: 14px 16px !important;
   font-family: var(--font-sans);
 }
-
-.maplibregl-popup-tip {
-  border-top-color: rgba(10, 10, 10, 0.92) !important;
-}
-
+.maplibregl-popup-tip { border-top-color: var(--surface-solid) !important; }
 .maplibregl-popup-close-button {
-  color: rgba(255, 255, 255, 0.3) !important;
+  color: var(--text-faint) !important;
   font-size: 18px !important;
-  padding: 4px 8px !important;
+  padding: 4px 9px !important;
 }
-.maplibregl-popup-close-button:hover {
-  color: var(--hud-accent) !important;
-  background: transparent !important;
-}
+.maplibregl-popup-close-button:hover { color: var(--text) !important; background: transparent !important; }
+
+/* ── Scrollbars (clean, thin) ─────────────────── */
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.16) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 99px; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.24); }
