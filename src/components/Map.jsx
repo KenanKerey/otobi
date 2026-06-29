@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import MapGL, { Marker, Source, Layer } from 'react-map-gl/maplibre';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import MapGL, { Marker, Source, Layer, Popup } from 'react-map-gl/maplibre';
+import { calculateDistanceKm } from '../utils/distance';
 import { LocateFixed, Plus, Minus, Compass } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { getBusLineRoute, getDirectionStops } from '../services/routeData';
@@ -7,7 +8,8 @@ import { createBusGeoJson } from './ThreeBusLayer';
 import { useFleetOverview } from '../hooks/useFleetOverview';
 import TransitLayers from './TransitLayers';
 
-const MAP_STYLE = 'https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json';
+const MAP_STYLE_DARK = 'https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json';
+const MAP_STYLE_LIGHT = 'https://tiles.stadiamaps.com/styles/alidade_smooth.json';
 const ISTANBUL = { longitude: 28.9784, latitude: 41.0082 };
 
 // Navigation route layers (Nereden-Nereye)
@@ -24,12 +26,6 @@ const NAV_ROUTE_GLOW = {
 };
 
 // Bus line route layers (on click)
-const BUS_ROUTE_LAYER = {
-  id: 'bus-route-line',
-  type: 'line',
-  paint: { 'line-color': '#4c8dff', 'line-width': 4, 'line-opacity': 0.95 },
-  layout: { 'line-cap': 'round', 'line-join': 'round' },
-};
 const BUS_ROUTE_GLOW = {
   id: 'bus-route-glow',
   type: 'line',
@@ -73,17 +69,45 @@ function MapControls({ mapRef }) {
 
 export default function Map({ buses }) {
   const mapRef = useRef(null);
-  const { activeBus, setActiveBus, origin, destination, routeGeometry, filterText } = useApp();
+  const { activeBus, setActiveBus, routeDir, setRouteDir, theme, origin, destination, routeGeometry, filterText } = useApp();
 
   // Show all fleet vehicles when no line is selected
   const fleetActive = !filterText || filterText.length < 2;
   const fleetGeoJson = useFleetOverview(fleetActive);
   const [busRoute, setBusRoute] = useState(null);
   const [routeStops, setRouteStops] = useState(null);
+  const [stopPopup, setStopPopup] = useState(null);
   const busRouteLineRef = useRef(null);
 
   // 3D bus GeoJSON data (fill-extrusion layers) - recomputed every render
   const busGeo = createBusGeoJson(buses);
+
+  // Traffic-coloured route: split the route into chunks and colour each by the
+  // average speed of buses near it (green = flowing, red = congested).
+  const trafficGeo = useMemo(() => {
+    const coords = busRoute?.geometry?.coordinates;
+    if (!coords || coords.length < 2) return null;
+    const chunks = Math.min(40, Math.max(8, Math.floor(coords.length / 6)));
+    const per = Math.max(1, Math.ceil((coords.length - 1) / chunks));
+    const features = [];
+    for (let i = 0; i < coords.length - 1; i += per) {
+      const seg = coords.slice(i, Math.min(i + per + 1, coords.length));
+      if (seg.length < 2) continue;
+      const mid = seg[Math.floor(seg.length / 2)];
+      let sum = 0, cnt = 0;
+      for (const b of buses) {
+        if (b.speed == null) continue;
+        if (calculateDistanceKm(mid[1], mid[0], b.lat, b.lng) < 0.45) { sum += b.speed; cnt++; }
+      }
+      let color = '#4c8dff'; // no nearby bus → neutral
+      if (cnt > 0) {
+        const avg = sum / cnt;
+        color = avg < 12 ? '#ef4444' : avg < 25 ? '#f5a524' : '#34d27b';
+      }
+      features.push({ type: 'Feature', properties: { color }, geometry: { type: 'LineString', coordinates: seg } });
+    }
+    return { type: 'FeatureCollection', features };
+  }, [busRoute, buses]);
 
   // Compute approaching stops
   const approachingStops = Object.values(
@@ -99,18 +123,19 @@ export default function Map({ buses }) {
     ...ISTANBUL, zoom: 11, pitch: 60, bearing: -17,
   });
 
-  // Fly to the active bus when it changes (selected from map or list)
+  // Fly to the active bus when it changes; reset the drawn direction to its own.
   useEffect(() => {
     if (activeBus && mapRef.current) {
       mapRef.current.getMap().flyTo({
         center: [activeBus.lng, activeBus.lat],
         zoom: 16, pitch: 60, duration: 1200,
       });
+      setRouteDir(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBus?.id]);
 
-  // Draw the active bus's line route + stops (real IBB route data)
+  // Draw the line route + stops for the chosen direction (real IBB route data)
   useEffect(() => {
     if (!activeBus) {
       setBusRoute(null);
@@ -118,14 +143,15 @@ export default function Map({ buses }) {
       busRouteLineRef.current = null;
       return;
     }
-    const lineKey = `${activeBus.line}-${activeBus.destination}`;
+    const dir = routeDir ?? activeBus.destination;
+    const lineKey = `${activeBus.line}-${dir}`;
     if (busRouteLineRef.current === lineKey) return;
     busRouteLineRef.current = lineKey;
 
-    getBusLineRoute(activeBus.line, activeBus.destination).then((geo) => {
+    getBusLineRoute(activeBus.line, dir).then((geo) => {
       setBusRoute(geo || null);
     });
-    getDirectionStops(activeBus.line, activeBus.destination).then((stops) => {
+    getDirectionStops(activeBus.line, dir).then((stops) => {
       setRouteStops({
         type: 'FeatureCollection',
         features: (stops || []).map((s) => ({
@@ -136,7 +162,7 @@ export default function Map({ buses }) {
       });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeBus?.id]);
+  }, [activeBus?.id, routeDir]);
 
   // Fit route bounds (Nereden-Nereye)
   useEffect(() => {
@@ -178,23 +204,46 @@ export default function Map({ buses }) {
     setActiveBus(bus);
   }, [setActiveBus]);
 
+  // Show a stop's name when its dot is tapped.
+  const onMapClick = useCallback((evt) => {
+    const f = evt.features?.find((x) => x.layer?.id === 'route-stops');
+    if (f) {
+      setStopPopup({ lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], name: f.properties.name });
+    } else {
+      setStopPopup(null);
+    }
+  }, []);
+
   return (
     <div className="absolute inset-0">
       <MapGL
         ref={mapRef}
         {...viewState}
         onMove={(evt) => setViewState(evt.viewState)}
-        mapStyle={MAP_STYLE}
+        mapStyle={theme === 'light' ? MAP_STYLE_LIGHT : MAP_STYLE_DARK}
         style={{ width: '100%', height: '100%' }}
         onLoad={onMapLoad}
+        onClick={onMapClick}
+        interactiveLayerIds={['route-stops']}
         attributionControl={true}
         maxPitch={85}
       >
-        {/* Bus line route */}
+        {/* Bus line route — soft glow underlay */}
         {busRoute && (
           <Source id="bus-route-src" type="geojson" data={busRoute}>
             <Layer {...BUS_ROUTE_GLOW} />
-            <Layer {...BUS_ROUTE_LAYER} />
+          </Source>
+        )}
+
+        {/* Traffic-coloured route (green flowing → red congested) */}
+        {trafficGeo && (
+          <Source id="route-traffic-src" type="geojson" data={trafficGeo}>
+            <Layer
+              id="route-traffic"
+              type="line"
+              paint={{ 'line-color': ['get', 'color'], 'line-width': 4.5, 'line-opacity': 0.95 }}
+              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+            />
           </Source>
         )}
 
@@ -352,6 +401,24 @@ export default function Map({ buses }) {
             </Marker>
           );
         })}
+
+        {/* Stop name popup */}
+        {stopPopup && (
+          <Popup
+            longitude={stopPopup.lng}
+            latitude={stopPopup.lat}
+            anchor="bottom"
+            offset={[0, -6]}
+            closeButton={false}
+            closeOnClick={true}
+            onClose={() => setStopPopup(null)}
+          >
+            <div className="flex items-center gap-1.5 text-[12px] font-medium text-white/90">
+              <span className="w-2 h-2 rounded-full" style={{ background: '#4c8dff' }} />
+              {stopPopup.name}
+            </div>
+          </Popup>
+        )}
 
         <MapControls mapRef={mapRef} />
       </MapGL>

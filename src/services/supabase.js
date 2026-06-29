@@ -39,6 +39,19 @@ export async function fetchVehiclesByLine(line) {
   return rest(`vehicle_positions?select=${VEHICLE_COLS}&line=eq.${code}&updated_at=gte.${fresh}&order=updated_at.desc`);
 }
 
+// Line stops (ordered, both directions) — fetched server-side from IBB and
+// cached in Supabase, so the client never calls the IBB API for route data.
+export async function fetchLineStops(line) {
+  const res = await fetch(`${URL}/functions/v1/line-stops`, {
+    method: 'POST',
+    headers: { apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ line: (line || '').toUpperCase() }),
+  });
+  if (!res.ok) throw new Error(`line-stops: ${res.status}`);
+  const data = await res.json();
+  return data.stops || [];
+}
+
 // Tell the backend a line is being viewed, so the poller keeps it fresh.
 export async function touchLine(line) {
   return rest('rpc/touch_line', { method: 'POST', body: JSON.stringify({ p_line: (line || '').toUpperCase() }) });

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Search, Star, X, MapPin, Route, Bus } from 'lucide-react';
+import { Search, Star, X, MapPin, Route, Bus, Sun, Moon } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useLineSearch } from '../hooks/useLineSearch';
 import { geocode, getRoute } from '../services/routing';
@@ -15,6 +15,7 @@ export default function SearchBar() {
     favorites, toggleFavorite, isFavorite, selectLine,
     origin, setOrigin, destination, setDestination,
     setRouteGeometry, setRouteInfo, clearRoute,
+    theme, toggleTheme,
   } = useApp();
 
   const [mode, setMode] = useState('line'); // 'line' | 'route'
@@ -193,21 +194,30 @@ export default function SearchBar() {
               </span>
             </div>
           </div>
-          {mode === 'line' && hasSearch && (
+          <div className="flex items-center gap-0.5">
             <button
-              onClick={() => toggleFavorite(filterText.toUpperCase())}
-              title={isFavorite(filterText.toUpperCase()) ? 'Favorilerden kaldır' : 'Favorilere ekle'}
-              className="p-1.5 rounded transition-colors cursor-pointer hover:bg-white/5"
+              onClick={toggleTheme}
+              title={theme === 'dark' ? 'Açık tema' : 'Koyu tema'}
+              className="p-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/5 text-white/40 hover:text-white/70"
             >
-              <Star
-                className={`h-4 w-4 ${
-                  isFavorite(filterText.toUpperCase())
-                    ? 'text-[#34d27b] fill-current'
-                    : 'text-white/25 hover:text-white/50'
-                }`}
-              />
+              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
-          )}
+            {mode === 'line' && hasSearch && (
+              <button
+                onClick={() => toggleFavorite(filterText.toUpperCase())}
+                title={isFavorite(filterText.toUpperCase()) ? 'Favorilerden kaldır' : 'Favorilere ekle'}
+                className="p-1.5 rounded-lg transition-colors cursor-pointer hover:bg-white/5"
+              >
+                <Star
+                  className={`h-4 w-4 ${
+                    isFavorite(filterText.toUpperCase())
+                      ? 'text-[#34d27b] fill-current'
+                      : 'text-white/25 hover:text-white/50'
+                  }`}
+                />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Mode Tabs */}

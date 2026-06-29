@@ -7,7 +7,18 @@ export function AppProvider({ children }) {
   const [filterText, setFilterText] = useState('');
   const [selectedBus, setSelectedBus] = useState(null);
   const [activeBus, setActiveBus] = useState(null); // bus shown in the side detail view
+  const [routeDir, setRouteDir] = useState(null);   // destination (yön) whose route is drawn
   const [panelOpen, setPanelOpen] = useState(false);
+  const [theme, setThemeState] = useState(() => {
+    try { return localStorage.getItem('otobi-theme') || 'dark'; } catch { return 'dark'; }
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try { localStorage.setItem('otobi-theme', theme); } catch { /* ignore */ }
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => setThemeState((t) => (t === 'dark' ? 'light' : 'dark')), []);
   const [favorites, setFavorites] = useState(() => {
     try {
       const saved = localStorage.getItem('ibb-favorites');
@@ -49,6 +60,7 @@ export function AppProvider({ children }) {
   const selectLine = useCallback((lineCode) => {
     setFilterText(lineCode);
     setActiveBus(null);
+    setRouteDir(null);
     setPanelOpen(true);
   }, []);
 
@@ -66,6 +78,10 @@ export function AppProvider({ children }) {
     setSelectedBus,
     activeBus,
     setActiveBus,
+    routeDir,
+    setRouteDir,
+    theme,
+    toggleTheme,
     panelOpen,
     setPanelOpen,
     favorites,

@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 import { calculateDistanceKm } from '../utils/distance';
-import { fetchAllStops, fetchAllLines, fetchVehiclesByLine } from './supabase';
+import { fetchAllStops, fetchAllLines, fetchVehiclesByLine, fetchLineStops } from './supabase';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -193,34 +193,7 @@ export async function getLineStops(lineCode) {
   if (cachedLineStops.has(key)) return cachedLineStops.get(key);
 
   try {
-    const body = await soapRequest(
-      '/api/iett/ibb/ibb.asmx',
-      'DurakDetay_GYY',
-      `<DurakDetay_GYY xmlns="http://tempuri.org/"><hat_kodu>${key}</hat_kodu></DurakDetay_GYY>`
-    );
-
-    const result = body['DurakDetay_GYYResponse']?.['DurakDetay_GYYResult'];
-    if (!result) return [];
-
-    // Response format: { NewDataSet: { Table: [...] } }
-    const ds = result['NewDataSet'] || result['diffgr:diffgram']?.['NewDataSet'];
-    if (!ds) return [];
-
-    let rows = ds.Table || ds.table || [];
-    if (!Array.isArray(rows)) rows = [rows];
-
-    const stops = rows
-      .map(row => ({
-        code: String(row.DURAKKODU || ''),
-        name: row.DURAKADI || '',
-        lat: parseFloat(row.YKOORDINATI),
-        lng: parseFloat(row.XKOORDINATI),
-        direction: row.YON || '',
-        sequence: parseInt(row.SIRANO, 10) || 0,
-      }))
-      .filter(s => !isNaN(s.lat) && !isNaN(s.lng))
-      .sort((a, b) => a.sequence - b.sequence);
-
+    const stops = await fetchLineStops(key);
     cachedLineStops.set(key, stops);
     return stops;
   } catch (err) {
