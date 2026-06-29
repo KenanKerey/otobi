@@ -7,7 +7,7 @@ export function AppProvider({ children }) {
   const [filterText, setFilterText] = useState('');
   const [selectedBus, setSelectedBus] = useState(null);
   const [activeBus, setActiveBus] = useState(null); // bus shown in the side detail view
-  const [routeDir, setRouteDir] = useState(null);   // destination (yön) whose route is drawn
+  const [dirFilter, setDirFilter] = useState(null); // show only buses heading to this destination
   const [panelOpen, setPanelOpen] = useState(false);
   const [theme, setThemeState] = useState(() => {
     try { return localStorage.getItem('otobi-theme') || 'dark'; } catch { return 'dark'; }
@@ -19,6 +19,19 @@ export function AppProvider({ children }) {
   }, [theme]);
 
   const toggleTheme = useCallback(() => setThemeState((t) => (t === 'dark' ? 'light' : 'dark')), []);
+
+  // Daytime preview: shift the rail clock so trains can be seen at night.
+  // previewOffset = seconds added to the real Istanbul clock (null = live now).
+  const [previewOffset, setPreviewOffset] = useState(null);
+  const togglePreview = useCallback(() => {
+    setPreviewOffset((cur) => {
+      if (cur != null) return null;
+      const ist = new Date(Date.now() + 3 * 3600 * 1000);
+      const sec = ist.getUTCHours() * 3600 + ist.getUTCMinutes() * 60 + ist.getUTCSeconds();
+      return 9 * 3600 - sec; // jump to ~09:00
+    });
+  }, []);
+
   const [favorites, setFavorites] = useState(() => {
     try {
       const saved = localStorage.getItem('ibb-favorites');
@@ -36,9 +49,14 @@ export function AppProvider({ children }) {
 
   const { buses, loading, error, retry } = useBuses(filterText);
 
-  const filteredBuses = buses.filter(bus =>
+  const lineBuses = buses.filter(bus =>
     bus.line.toLowerCase().includes(filterText.toLowerCase())
   );
+
+  // Available directions (unique destinations) for the line, and the visible set
+  // once a direction filter is applied.
+  const directions = [...new Set(lineBuses.map(b => b.destination).filter(Boolean))];
+  const filteredBuses = dirFilter ? lineBuses.filter(b => b.destination === dirFilter) : lineBuses;
 
   // Persist favorites
   useEffect(() => {
@@ -60,7 +78,7 @@ export function AppProvider({ children }) {
   const selectLine = useCallback((lineCode) => {
     setFilterText(lineCode);
     setActiveBus(null);
-    setRouteDir(null);
+    setDirFilter(null);
     setPanelOpen(true);
   }, []);
 
@@ -78,10 +96,13 @@ export function AppProvider({ children }) {
     setSelectedBus,
     activeBus,
     setActiveBus,
-    routeDir,
-    setRouteDir,
+    directions,
+    dirFilter,
+    setDirFilter,
     theme,
     toggleTheme,
+    previewOffset,
+    togglePreview,
     panelOpen,
     setPanelOpen,
     favorites,

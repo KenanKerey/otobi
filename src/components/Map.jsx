@@ -1,12 +1,13 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import MapGL, { Marker, Source, Layer, Popup } from 'react-map-gl/maplibre';
 import { calculateDistanceKm } from '../utils/distance';
-import { LocateFixed, Plus, Minus, Compass } from 'lucide-react';
+import { LocateFixed, Plus, Minus, Compass, Clock, Radio } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { getBusLineRoute, getDirectionStops } from '../services/routeData';
 import { createBusGeoJson } from './ThreeBusLayer';
 import { useFleetOverview } from '../hooks/useFleetOverview';
 import TransitLayers from './TransitLayers';
+import RailLayer from './RailLayer';
 
 const MAP_STYLE_DARK = 'https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json';
 const MAP_STYLE_LIGHT = 'https://tiles.stadiamaps.com/styles/alidade_smooth.json';
@@ -69,7 +70,7 @@ function MapControls({ mapRef }) {
 
 export default function Map({ buses }) {
   const mapRef = useRef(null);
-  const { activeBus, setActiveBus, routeDir, setRouteDir, theme, origin, destination, routeGeometry, filterText } = useApp();
+  const { activeBus, setActiveBus, theme, origin, destination, routeGeometry, filterText, previewOffset, togglePreview } = useApp();
 
   // Show all fleet vehicles when no line is selected
   const fleetActive = !filterText || filterText.length < 2;
@@ -77,6 +78,7 @@ export default function Map({ buses }) {
   const [busRoute, setBusRoute] = useState(null);
   const [routeStops, setRouteStops] = useState(null);
   const [stopPopup, setStopPopup] = useState(null);
+  const [railPopup, setRailPopup] = useState(null);
   const busRouteLineRef = useRef(null);
 
   // 3D bus GeoJSON data (fill-extrusion layers) - recomputed every render
@@ -123,19 +125,18 @@ export default function Map({ buses }) {
     ...ISTANBUL, zoom: 11, pitch: 60, bearing: -17,
   });
 
-  // Fly to the active bus when it changes; reset the drawn direction to its own.
+  // Fly to the active bus when it changes (selected from map or list).
   useEffect(() => {
     if (activeBus && mapRef.current) {
       mapRef.current.getMap().flyTo({
         center: [activeBus.lng, activeBus.lat],
         zoom: 16, pitch: 60, duration: 1200,
       });
-      setRouteDir(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBus?.id]);
 
-  // Draw the line route + stops for the chosen direction (real IBB route data)
+  // Draw the active bus's line route + stops for its travel direction.
   useEffect(() => {
     if (!activeBus) {
       setBusRoute(null);
@@ -143,7 +144,7 @@ export default function Map({ buses }) {
       busRouteLineRef.current = null;
       return;
     }
-    const dir = routeDir ?? activeBus.destination;
+    const dir = activeBus.destination;
     const lineKey = `${activeBus.line}-${dir}`;
     if (busRouteLineRef.current === lineKey) return;
     busRouteLineRef.current = lineKey;
@@ -162,7 +163,7 @@ export default function Map({ buses }) {
       });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeBus?.id, routeDir]);
+  }, [activeBus?.id]);
 
   // Fit route bounds (Nereden-Nereye)
   useEffect(() => {
@@ -204,13 +205,28 @@ export default function Map({ buses }) {
     setActiveBus(bus);
   }, [setActiveBus]);
 
-  // Show a stop's name when its dot is tapped.
+  // Show a stop's name, or a rail/ferry vehicle's next-stop + ETA, when tapped.
   const onMapClick = useCallback((evt) => {
-    const f = evt.features?.find((x) => x.layer?.id === 'route-stops');
-    if (f) {
-      setStopPopup({ lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], name: f.properties.name });
+    const stop = evt.features?.find((x) => x.layer?.id === 'route-stops');
+    const rail = evt.features?.find((x) => x.layer?.id === 'rail-points');
+    if (stop) {
+      setStopPopup({ lng: stop.geometry.coordinates[0], lat: stop.geometry.coordinates[1], name: stop.properties.name });
+      setRailPopup(null);
+    } else if (rail) {
+      setRailPopup({
+        lng: rail.geometry.coordinates[0],
+        lat: rail.geometry.coordinates[1],
+        line: rail.properties.line,
+        color: rail.properties.color,
+        ferry: rail.properties.ferry,
+        nextStop: rail.properties.nextStop,
+        etaMin: rail.properties.etaMin,
+        headsign: rail.properties.headsign,
+      });
+      setStopPopup(null);
     } else {
       setStopPopup(null);
+      setRailPopup(null);
     }
   }, []);
 
@@ -224,7 +240,7 @@ export default function Map({ buses }) {
         style={{ width: '100%', height: '100%' }}
         onLoad={onMapLoad}
         onClick={onMapClick}
-        interactiveLayerIds={['route-stops']}
+        interactiveLayerIds={['route-stops', 'rail-points']}
         attributionControl={true}
         maxPitch={85}
       >
@@ -272,8 +288,11 @@ export default function Map({ buses }) {
           </Source>
         )}
 
-        {/* ═══ Transit Lines (metro, tram, ferry) ═══ */}
+        {/* ═══ Transit Lines (metro, tram, ferry) — static network ═══ */}
         <TransitLayers />
+
+        {/* ═══ Live rail + ferry vehicles (GTFS schedule-driven) ═══ */}
+        <RailLayer enabled={true} previewOffset={previewOffset} />
 
         {/* ═══ Fleet Overview (all vehicles as dots) ═══ */}
         {fleetActive && fleetGeoJson && (
@@ -420,8 +439,55 @@ export default function Map({ buses }) {
           </Popup>
         )}
 
+        {/* Rail / ferry vehicle popup (line, destination, next stop, ETA) */}
+        {railPopup && (
+          <Popup
+            longitude={railPopup.lng}
+            latitude={railPopup.lat}
+            anchor="bottom"
+            offset={[0, -10]}
+            closeButton={false}
+            closeOnClick={true}
+            onClose={() => setRailPopup(null)}
+          >
+            <div className="min-w-[150px]">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span
+                  className="text-[11px] font-bold px-1.5 py-0.5 rounded text-white"
+                  style={{ background: railPopup.color }}
+                >
+                  {railPopup.ferry ? '⛴ Vapur' : railPopup.line}
+                </span>
+                <span className="text-[11px] text-white/70 truncate">{railPopup.headsign}</span>
+              </div>
+              {railPopup.nextStop && (
+                <div className="flex items-center justify-between gap-3 text-[12px] text-white/90">
+                  <span className="truncate">→ {railPopup.nextStop}</span>
+                  {railPopup.etaMin !== '' && railPopup.etaMin != null && (
+                    <span className="font-bold shrink-0" style={{ color: 'var(--accent)' }}>
+                      ~{railPopup.etaMin} dk
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          </Popup>
+        )}
+
         <MapControls mapRef={mapRef} />
       </MapGL>
+
+      {/* Daytime preview toggle — see metros move even at night (schedule-shifted) */}
+      <button
+        onClick={togglePreview}
+        title={previewOffset != null ? 'Canlı saate dön' : 'Metroları gündüz tarifesinde izle'}
+        className={`absolute z-[950] bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-2 rounded-full text-[11px] font-semibold cursor-pointer transition-colors hud-surface ${
+          previewOffset != null ? 'text-amber-300' : 'text-white/70 hover:text-white'
+        }`}
+      >
+        {previewOffset != null ? <Radio className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
+        {previewOffset != null ? 'Önizleme: gündüz · canlıya dön' : 'Gündüz önizleme'}
+      </button>
     </div>
   );
 }

@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Search, Star, X, MapPin, Route, Bus, Sun, Moon } from 'lucide-react';
+import { Search, Star, X, MapPin, Route, Bus, Sun, Moon, TrainFront } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useLineSearch } from '../hooks/useLineSearch';
 import { geocode, getRoute } from '../services/routing';
+import Planner from './Planner';
 
 const POPULAR_LINES = [
   '500T', '34BZ', '34AS', '76D', '34G',
@@ -244,6 +245,17 @@ export default function SearchBar() {
             <Route className="h-3 w-3" />
             ROTA
           </button>
+          <button
+            onClick={() => switchMode('metro')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 hud-mono text-[10px] tracking-wider transition-colors cursor-pointer ${
+              mode === 'metro'
+                ? 'bg-white/[0.07] text-white font-semibold'
+                : 'text-white/40 hover:text-white/60'
+            }`}
+          >
+            <TrainFront className="h-3 w-3" />
+            TARİFE
+          </button>
         </div>
 
         {/* Divider */}
@@ -444,9 +456,16 @@ export default function SearchBar() {
           </div>
         )}
 
+        {/* ── METRO/RAIL TIMETABLE PLANNER ── */}
+        {mode === 'metro' && <Planner />}
+
         {/* Status Bar */}
         <div className="flex items-center gap-2 px-3 py-2 border-t border-white/[0.06] bg-white/[0.02]">
-          {mode === 'line' ? (
+          {mode === 'metro' ? (
+            <span className="hud-mono text-[9px] text-white/20 tracking-wider">
+              Gerçek GTFS tarifesi · metro · tramvay · vapur
+            </span>
+          ) : mode === 'line' ? (
             !hasSearch ? (
               <span className="hud-mono text-[9px] text-white/20 tracking-wider">
                 Hat arayarak başlayın

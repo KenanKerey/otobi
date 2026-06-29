@@ -39,6 +39,16 @@ export async function fetchVehiclesByLine(line) {
   return rest(`vehicle_positions?select=${VEHICLE_COLS}&line=eq.${code}&updated_at=gte.${fresh}&order=updated_at.desc`);
 }
 
+// ── Metro (real stations + live service status) ──
+// Stations are static (refreshed weekly server-side); status is live faults.
+export async function fetchMetroStations() {
+  return rest('metro_stations?select=id,line_id,line_name,name,description,ordinal,lat,lng&order=line_id.asc,ordinal.asc');
+}
+
+export async function fetchMetroStatus() {
+  return rest('metro_status?select=line_id,line_name,description,is_active,update_date');
+}
+
 // Line stops (ordered, both directions) — fetched server-side from IBB and
 // cached in Supabase, so the client never calls the IBB API for route data.
 export async function fetchLineStops(line) {

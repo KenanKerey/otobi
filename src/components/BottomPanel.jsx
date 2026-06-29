@@ -2,12 +2,9 @@ import { ArrowLeft, MapPin, Clock, Gauge, Navigation } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 export default function BottomPanel() {
-  const { buses, filterText, activeBus, setActiveBus, routeDir, setRouteDir } = useApp();
+  const { buses, filterText, activeBus, setActiveBus, directions, dirFilter, setDirFilter } = useApp();
 
-  if (!filterText || filterText.length < 2 || buses.length === 0) return null;
-
-  // The line's directions (unique destinations) for the route toggle.
-  const directions = [...new Set(buses.map((b) => b.destination).filter(Boolean))];
+  if (!filterText || filterText.length < 2) return null;
 
   // Soonest-arriving buses first.
   const sorted = [...buses].sort(
@@ -44,26 +41,6 @@ export default function BottomPanel() {
                 <Navigation className="h-4 w-4 text-white/40 shrink-0" />
                 <span className="text-[14px] font-semibold text-white/90">{live.destination}</span>
               </div>
-
-              {directions.length > 1 && (
-                <div className="flex gap-1 rounded-xl bg-white/[0.04] border border-white/[0.06] p-1">
-                  {directions.map((d) => {
-                    const isActive = (routeDir ?? live.destination) === d;
-                    return (
-                      <button
-                        key={d}
-                        onClick={() => setRouteDir(d)}
-                        title={d}
-                        className={`flex-1 min-w-0 text-[10.5px] px-2 py-1.5 rounded-lg truncate transition-colors cursor-pointer ${
-                          isActive ? 'bg-white/[0.08] text-white font-semibold' : 'text-white/45 hover:text-white/70'
-                        }`}
-                      >
-                        {d}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
 
               {live.approachingStop && (
                 <div className="rounded-xl bg-white/[0.04] border border-white/[0.06] p-3 flex items-center justify-between">
@@ -114,6 +91,29 @@ export default function BottomPanel() {
                 </span>
               </div>
             </div>
+
+            {/* Direction filter */}
+            {directions.length > 1 && (
+              <div className="flex gap-1.5 px-3 py-2 border-b border-white/[0.06] overflow-x-auto">
+                {[null, ...directions].map((d) => {
+                  const active = dirFilter === d;
+                  return (
+                    <button
+                      key={d ?? 'all'}
+                      onClick={() => setDirFilter(d)}
+                      title={d ?? 'Tümü'}
+                      className={`shrink-0 max-w-[140px] truncate text-[11px] px-2.5 py-1.5 rounded-lg border transition-colors cursor-pointer ${
+                        active
+                          ? 'bg-white/[0.08] border-white/[0.12] text-white font-semibold'
+                          : 'bg-white/[0.02] border-white/[0.06] text-white/45 hover:text-white/70'
+                      }`}
+                    >
+                      {d ? d : 'Tümü'}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             <div className="flex-1 overflow-y-auto">
               {sorted.map((bus) => (
